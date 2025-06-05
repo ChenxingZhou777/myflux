@@ -5,12 +5,10 @@ from dataclasses import dataclass
 from glob import iglob
 
 import torch
-from cuda import cudart
 from fire import Fire
 from transformers import pipeline
 
 from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack
-from flux.trt.trt_manager import TRTManager
 from flux.util import configs, load_ae, load_clip, load_flow_model, load_t5, save_image
 
 NSFW_THRESHOLD = 0.85
@@ -95,9 +93,9 @@ def parse_prompt(options: SamplingOptions) -> SamplingOptions | None:
 
 @torch.inference_mode()
 def main(
-    name: str = "flux-schnell",
-    width: int = 1360,
-    height: int = 768,
+    name: str = "flux-dev",
+    width: int = 512,
+    height: int = 512,
     seed: int | None = None,
     prompt: str = (
         "a photo of a forest with mist swirling around the tree trunks. The word "
@@ -107,12 +105,9 @@ def main(
     num_steps: int | None = None,
     loop: bool = False,
     guidance: float = 3.5,
-    offload: bool = False,
+    offload: bool = True,
     output_dir: str = "output",
     add_sampling_metadata: bool = True,
-    trt: bool = False,
-    trt_transformer_precision: str = "bf16",
-    **kwargs: dict | None,
 ):
     """
     Sample the flux model. Either interactively (set `--loop`) or run for a
@@ -131,22 +126,7 @@ def main(
         loop: start an interactive session and sample multiple times
         guidance: guidance value used for guidance distillation
         add_sampling_metadata: Add the prompt to the image Exif metadata
-        trt: use TensorRT backend for optimized inference
-        kwargs: additional arguments for TensorRT support
     """
-
-    prompt = prompt.split("|")
-    if len(prompt) == 1:
-        prompt = prompt[0]
-        additional_prompts = None
-    else:
-        additional_prompts = prompt[1:]
-        prompt = prompt[0]
-
-    assert not (
-        (additional_prompts is not None) and loop
-    ), "Do not provide additional prompts and set loop to True"
-
     nsfw_classifier = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=device)
 
     if name not in configs:
@@ -177,58 +157,6 @@ def main(
     clip = load_clip(torch_device)
     model = load_flow_model(name, device="cpu" if offload else torch_device)
     ae = load_ae(name, device="cpu" if offload else torch_device)
-
-    if trt:
-        # offload to CPU to save memory
-        ae = ae.cpu()
-        model = model.cpu()
-        clip = clip.cpu()
-        t5 = t5.cpu()
-
-        torch.cuda.empty_cache()
-
-        trt_ctx_manager = TRTManager(
-            bf16=True,
-            device=torch_device,
-            static_batch=kwargs.get("static_batch", True),
-            static_shape=kwargs.get("static_shape", True),
-        )
-        ae.decoder.params = ae.params
-        engines = trt_ctx_manager.load_engines(
-            models={
-                "clip": clip,
-                "transformer": model,
-                "t5": t5,
-                "vae": ae.decoder,
-            },
-            engine_dir=os.environ.get("TRT_ENGINE_DIR", "./engines"),
-            onnx_dir=os.environ.get("ONNX_DIR", "./onnx"),
-            opt_image_height=height,
-            opt_image_width=width,
-            transformer_precision=trt_transformer_precision,
-        )
-
-        torch.cuda.synchronize()
-
-        trt_ctx_manager.init_runtime()
-        # TODO: refactor. stream should be part of engine constructor maybe !!
-        for _, engine in engines.items():
-            engine.set_stream(stream=trt_ctx_manager.stream)
-
-        if not offload:
-            for _, engine in engines.items():
-                engine.load()
-
-            calculate_max_device_memory = trt_ctx_manager.calculate_max_device_memory(engines)
-            _, shared_device_memory = cudart.cudaMalloc(calculate_max_device_memory)
-
-            for _, engine in engines.items():
-                engine.activate(device=torch_device, device_memory=shared_device_memory)
-
-        ae = engines["vae"]
-        model = engines["transformer"]
-        clip = engines["clip"]
-        t5 = engines["t5"]
 
     rng = torch.Generator(device="cpu")
     opts = SamplingOptions(
@@ -298,14 +226,8 @@ def main(
         if loop:
             print("-" * 80)
             opts = parse_prompt(opts)
-        elif additional_prompts:
-            next_prompt = additional_prompts.pop(0)
-            opts.prompt = next_prompt
         else:
             opts = None
-
-    if trt:
-        trt_ctx_manager.stop_runtime()
 
 
 def app():

@@ -355,11 +355,15 @@ def load_flow_model(
 
 def load_t5(device: str | torch.device = "cuda", max_length: int = 512) -> HFEmbedder:
     # max length 64, 128, 256 and 512 should work (if your sequence is short enough)
-    return HFEmbedder("google/t5-v1_1-xxl", max_length=max_length, torch_dtype=torch.bfloat16).to(device)
+    local_t5_model_path = "/home/zcx/codes/flux1dev/text_encoder_2"
+    local_t5_tokenizer_path = "/home/zcx/codes/flux1dev/tokenizer_2"
+    return HFEmbedder(local_t5_model_path, max_length=max_length, tokenizer_path=local_t5_tokenizer_path, torch_dtype=torch.bfloat16).to(device)
 
 
 def load_clip(device: str | torch.device = "cuda") -> HFEmbedder:
-    return HFEmbedder("openai/clip-vit-large-patch14", max_length=77, torch_dtype=torch.bfloat16).to(device)
+    local_clip_model_path = "/home/zcx/codes/flux1dev/text_encoder"
+    local_clip_tokenizer_path = "/home/zcx/codes/flux1dev/tokenizer"
+    return HFEmbedder(local_clip_model_path, max_length=77, tokenizer_path=local_clip_tokenizer_path, torch_dtype=torch.bfloat16).to(device)
 
 
 def load_ae(name: str, device: str | torch.device = "cuda", hf_download: bool = True) -> AutoEncoder:

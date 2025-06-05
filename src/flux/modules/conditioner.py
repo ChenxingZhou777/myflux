@@ -3,18 +3,22 @@ from transformers import CLIPTextModel, CLIPTokenizer, T5EncoderModel, T5Tokeniz
 
 
 class HFEmbedder(nn.Module):
-    def __init__(self, version: str, max_length: int, **hf_kwargs):
+    def __init__(self, version: str, max_length: int, tokenizer_path: str = None, **hf_kwargs):
         super().__init__()
-        self.is_clip = version.startswith("openai")
+        self.is_clip = version.startswith("openai") or (tokenizer_path and "tokenizer" in tokenizer_path and "tokenizer_2" not in tokenizer_path)
         self.max_length = max_length
         self.output_key = "pooler_output" if self.is_clip else "last_hidden_state"
 
+        # 使用tokenizer_path如果提供，否则使用version
+        tokenizer_version = tokenizer_path if tokenizer_path else version
+        model_version = version
+
         if self.is_clip:
-            self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(version, max_length=max_length)
-            self.hf_module: CLIPTextModel = CLIPTextModel.from_pretrained(version, **hf_kwargs)
+            self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(tokenizer_version, max_length=max_length)
+            self.hf_module: CLIPTextModel = CLIPTextModel.from_pretrained(model_version, **hf_kwargs)
         else:
-            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(version, max_length=max_length)
-            self.hf_module: T5EncoderModel = T5EncoderModel.from_pretrained(version, **hf_kwargs)
+            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(tokenizer_version, max_length=max_length)
+            self.hf_module: T5EncoderModel = T5EncoderModel.from_pretrained(model_version, **hf_kwargs)
 
         self.hf_module = self.hf_module.eval().requires_grad_(False)
 
