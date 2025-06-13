@@ -51,7 +51,7 @@
   "flow_quantization_dtype": "qfloat8",
   "text_enc_quantization_dtype": "qint4",
   "ae_quantization_dtype": "qfloat8",
-  "compile_extras": false,
+  "compile_extras": true,
   "compile_blocks": true,
   "offload_text_encoder": true,
   "offload_vae": true,
